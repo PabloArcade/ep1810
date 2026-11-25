@@ -5,7 +5,8 @@
  *
  * Reads a JEDEC file or a POF. Writes the equations of every logic cell, the pin
  * use, a design and assignment file for MAX+PLUS II with every pin and logic cell
- * in place, and a behavioural Verilog description.
+ * in place, and a behavioural Verilog description. Also rewrites a fuse file in
+ * the other format.
  *
  * The parts (tables in tables.h):
  *   - A logic cell has ten product terms. A term is a row of fuses, two per
@@ -36,7 +37,7 @@
 #include "tables.h"
 #include "selftest_data.h"
 
-#define VERSION "0.93"
+#define VERSION "0.94"
 
 #if defined(__MINGW64__)
 #define SETJMP(b) _setjmp((b), NULL)
@@ -1191,23 +1192,17 @@ static void do_devices(Text *o)
     }
 }
 
-/* ---------------------------------------------------------------- built-in checks */
+/* ---------------------------------------------------------------- output files */
 
-static unsigned long long fnv(unsigned long long h, const char *s, size_t n)
-{
-    size_t i;
-    for (i = 0; i < n; i++) { h ^= (unsigned char)s[i]; h *= 1099511628211ULL; }
-    return h;
-}
-#define FNV0 14695981039346656037ULL
-
-/* build a JEDEC file as MAX+PLUS II writes it */
-static size_t write_jed(const char *device, int security, const unsigned char *fz, int nfuse, int W, unsigned char *out)
+/* build a JEDEC file as MAX+PLUS II writes it; no ND note when device is NULL */
+static size_t write_jed(const char *title, const char *device, int security, const unsigned char *fz, int nfuse, int W, unsigned char *out)
 {
     size_t n = 0;
     int i;
     unsigned sum = 0;
-    n += (size_t)sprintf((char *)out + n, "\x02" "self-test\r\n*\r\nQF %d *\r\nND %s *\r\nN written by ep1810dump *\r\nG%d*\r\nL0 \r\n", nfuse, device, security);
+    n += (size_t)sprintf((char *)out + n, "\x02" "%s\r\n*\r\nQF %d *\r\n", title, nfuse);
+    if (device) n += (size_t)sprintf((char *)out + n, "ND %s *\r\n", device);
+    n += (size_t)sprintf((char *)out + n, "N written by ep1810dump *\r\nG%d*\r\nL0 \r\n", security);
     for (i = 0; i < nfuse; i++) {
         out[n++] = (unsigned char)('0' + fz[i]);
         if (i % W == W - 1 || i == nfuse - 1) { out[n++] = '\r'; out[n++] = '\n'; }
@@ -1268,13 +1263,48 @@ static size_t write_pof(const char *device, int security, const unsigned char *f
     return n + 2;
 }
 
+#define MAXFILE 60000
+
+/*
+ * convert: the fuses and the security bit of one file written again as JEDEC or
+ * POF. A POF holds the device name, so it needs one; a JEDEC file without a
+ * device name is written without the ND note.
+ */
+static size_t do_convert(const unsigned char *d, size_t len, const char *dopt, int to_pof, unsigned char *out)
+{
+    const Family *F = NULL;
+    const char *device = NULL;
+    int i;
+    read_any(d, len, &file_a);
+    if (!dopt && !file_a.device[0]) {
+        if (to_pof) refuse("DEVICE_REQUIRED_FOR_POF", "the file names no device, give one with -d");
+        for (i = 0; i < NFAMILY; i++) if (FAMILY[i].QF == file_a.nfuse) F = &FAMILY[i];
+        if (!F) refuse("FUSE_COUNT", "%d fuses", file_a.nfuse);
+    } else {
+        F = &FAMILY[load(d, len, dopt, &file_a, &device)->family];
+    }
+    if (to_pof) return write_pof(device, file_a.security, file_a.fuse, out);
+    return write_jed("ep1810dump", device, file_a.security, file_a.fuse, F->QF, F->W, out);
+}
+
+/* ---------------------------------------------------------------- built-in checks */
+
+static unsigned long long fnv(unsigned long long h, const char *s, size_t n)
+{
+    size_t i;
+    for (i = 0; i < n; i++) { h ^= (unsigned char)s[i]; h *= 1099511628211ULL; }
+    return h;
+}
+#define FNV0 14695981039346656037ULL
+
 /*
  * One built-in check: a design given as fuses (run-length coded in selftest_data.h),
  * wrapped into a JEDEC or POF file in memory, changed as the case says, then run
  * through one command. The expected result is a hash of the text written, or the
- * name of the refusal.
+ * name of the refusal. A convert case goes to one format and then to the other:
+ * both files are hashed and the last one must read back as the same fuses.
  */
-static unsigned char st_fuse[MAXFUSE], st_file[60000], st_file2[60000];
+static unsigned char st_fuse[MAXFUSE], st_file[MAXFILE], st_file2[MAXFILE], st_file3[MAXFILE];
 
 static void st_expand(const SelfDesign *D)
 {
@@ -1289,7 +1319,7 @@ static void st_expand(const SelfDesign *D)
 static size_t st_build(const SelfCase *C, const SelfDesign *D, int pof, unsigned char *out)
 {
     const Family *F = &FAMILY[find_part(D->device)->family];
-    return pof ? write_pof(D->device, C->security, st_fuse, out) : write_jed(D->device, C->security, st_fuse, F->QF, F->W, out);
+    return pof ? write_pof(D->device, C->security, st_fuse, out) : write_jed("self-test", D->device, C->security, st_fuse, F->QF, F->W, out);
 }
 
 static int st_run(const SelfCase *C, int planted)
@@ -1299,6 +1329,7 @@ static int st_run(const SelfCase *C, int planted)
     const char *dopt = clean ? NULL : C->dopt;
     size_t n;
     volatile size_t n2 = 0;
+    volatile int same = 1;
     Text a = {0, 0, 0}, b = {0, 0, 0}, c = {0, 0, 0}, d = {0, 0, 0};
     volatile unsigned long long h = FNV0;
     const char *volatile got = "";
@@ -1312,6 +1343,8 @@ static int st_run(const SelfCase *C, int planted)
         if (C->pof) st_file[n - 1] ^= 0xFF;
         else st_file[n - 3] = (unsigned char)(st_file[n - 3] == '0' ? '1' : '0');
     }
+    if (C->damage == 2 && !clean)       /* a JEDEC file that names no device */
+        n = write_jed("self-test", NULL, C->security, st_fuse, FAMILY[find_part(D->device)->family].QF, FAMILY[find_part(D->device)->family].W, st_file);
     if (SETJMP(refuse_jmp)) {
         got = refuse_name;
     } else {
@@ -1319,7 +1352,17 @@ static int st_run(const SelfCase *C, int planted)
         case 0: do_decode(st_file, n, dopt, &a); break;
         case 1: do_emit(st_file, n, dopt, "design", &a, &b, &c, &d); break;
         case 2: do_dump(st_file, n, dopt, &a); break;
-        default: do_diff(st_file2, n2, st_file, n, &a); break;
+        case 3: do_diff(st_file2, n2, st_file, n, &a); break;
+        default: {
+            size_t m = do_convert(st_file, n, dopt, C->cmd == 4, st_file2), m2;
+            h = fnv(h, (const char *)st_file2, m);
+            m2 = do_convert(st_file2, m, NULL, C->cmd != 4, st_file3);
+            h = fnv(h, (const char *)st_file3, m2);
+            read_any(st_file3, m2, &file_b);
+            same = file_b.security == C->security && file_b.nfuse == FAMILY[find_part(D->device)->family].QF &&
+                   memcmp(file_b.fuse, st_fuse, (size_t)file_b.nfuse) == 0;
+            break;
+        }
         }
         if (a.s) h = fnv(h, a.s, a.n);
         if (b.s) h = fnv(h, b.s, b.n);
@@ -1327,7 +1370,7 @@ static int st_run(const SelfCase *C, int planted)
         if (d.s) h = fnv(h, d.s, d.n);
     }
     if (C->refusal[0]) ok = strcmp(got, C->refusal) == 0;
-    else ok = (got[0] == 0 && h == C->hash);
+    else ok = (got[0] == 0 && h == C->hash && same);
     text_free(&a); text_free(&b); text_free(&c); text_free(&d);
     return ok;
 }
@@ -1357,6 +1400,7 @@ static const char USAGE[] =
     "       ep1810dump emit <file> [-d DEVICE] [-n NAME] -o DIR\n"
     "       ep1810dump dump <file> [-d DEVICE] [-o FILE]\n"
     "       ep1810dump diff <file A> <file B> [-o FILE]\n"
+    "       ep1810dump convert <file> -o OUT.{jed|pof} [-d DEVICE]\n"
     "       ep1810dump devices\n"
     "       ep1810dump selftest [--fail]\n"
     "       ep1810dump --version\n";
@@ -1389,6 +1433,18 @@ static int spill(const char *path, const Text *t)
     if (!f) return 0;
     if (t->n && fwrite(t->s, 1, t->n, f) != t->n) { fclose(f); return 0; }
     return fclose(f) == 0;
+}
+
+/* 1 for a name ending in .jed, 2 for .pof (either case), else 0 */
+static int fuse_ext(const char *s)
+{
+    size_t l = strlen(s);
+    char e[5];
+    int i;
+    if (l < 4) return 0;
+    for (i = 0; i < 4; i++) { char c = s[l - 4 + i]; e[i] = (char)((c >= 'A' && c <= 'Z') ? c + 32 : c); }
+    e[4] = 0;
+    return strcmp(e, ".jed") == 0 ? 1 : (strcmp(e, ".pof") == 0 ? 2 : 0);
 }
 
 static int name_ok(const char *s)
@@ -1444,6 +1500,17 @@ int main(int argc, char **argv)
         if (!da || !db) return 1;
         if (SETJMP(refuse_jmp)) goto refused;
         do_diff(da, la, db, lb, &out);
+    } else if (strcmp(cmd, "convert") == 0 && npos == 1 && oo && !on && fuse_ext(oo)) {
+        static unsigned char conv[MAXFILE];
+        FILE *f;
+        size_t n;
+        da = slurp(pos[0], &la);
+        if (!da) return 1;
+        if (SETJMP(refuse_jmp)) goto refused;
+        n = do_convert(da, la, od, fuse_ext(oo) == 2, conv);
+        f = fopen(oo, "wb");
+        if (!f || fwrite(conv, 1, n, f) != n || fclose(f) != 0) { fprintf(stderr, "ep1810dump: cannot write %s\n", oo); return 1; }
+        return 0;
     } else if (strcmp(cmd, "emit") == 0 && npos == 1 && oo) {
         const char *volatile name = on ? on : "design";
         static const char *const ext[4] = {".tdf", ".acf", ".v", ""};

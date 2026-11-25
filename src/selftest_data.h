@@ -4,7 +4,7 @@
  * Each design is a list of fuse runs: "first" is the value of the first run, the
  * values then alternate. Each case names a design, the file type to wrap it in, a
  * fuse to flip (or -1), a second fuse flipped by "selftest --fail", the command, and
- * the expected hash of the text written or the expected refusal.
+ * the expected hash of what is written or the expected refusal.
  */
 #ifndef EP1810_SELFTEST_DATA_H
 #define EP1810_SELFTEST_DATA_H
@@ -173,7 +173,7 @@ static const SelfDesign SELF_DESIGN[NSELFDESIGN] = {
     {"EP1810LC-45", 1, 73, self_runs4},
     {"EP610DC-25", 1, 25, self_runs5},
 };
-#define NSELFCASE 35
+#define NSELFCASE 48
 static const SelfCase SELF_CASE[NSELFCASE] = {
     {"decode EP610 DIP JEDEC", 0, 0, 0, 0, -1, 2200, 0, NULL, "", 2849044052981825242ULL},
     {"emit EP610 DIP JEDEC", 0, 1, 0, 0, -1, 2182, 0, NULL, "", 6909842189209058443ULL},
@@ -210,6 +210,19 @@ static const SelfCase SELF_CASE[NSELFCASE] = {
     {"refuse Turbo copies", 1, 0, 0, 0, 17400, -1, 0, NULL, "TURBO_COPIES_DIFFER", 0ULL},
     {"refuse clock pin fuse", 2, 0, 0, 0, 42480, -1, 0, NULL, "CLOCK_PIN_DATA_FUSE_MISMATCH", 0ULL},
     {"refuse global bus fuse", 2, 0, 0, 0, 42484, -1, 0, NULL, "GLOBAL_BUS_FUSE_MISMATCH", 0ULL},
+    {"convert EP610 DIP JEDEC to POF to JEDEC", 0, 4, 0, 0, -1, 6019, 0, NULL, "", 6579910734239492684ULL},
+    {"convert EP610 DIP POF to JEDEC to POF", 0, 5, 1, 0, -1, 1584, 0, NULL, "", 8135291375337806914ULL},
+    {"convert EP910 J-lead JEDEC to POF to JEDEC", 1, 4, 0, 0, -1, 14214, 0, NULL, "", 5322169582987742379ULL},
+    {"convert EP910 J-lead POF to JEDEC to POF", 1, 5, 1, 1, -1, 7462, 0, NULL, "", 7416042884957910114ULL},
+    {"convert EP1810 J-lead JEDEC to POF to JEDEC", 2, 4, 0, 0, -1, 29219, 0, NULL, "", 885231639064760291ULL},
+    {"convert EP1810 J-lead POF to JEDEC to POF", 2, 5, 1, 0, -1, 40850, 0, NULL, "", 374776788540500623ULL},
+    {"convert EP1810 PGA JEDEC to POF to JEDEC", 3, 4, 0, 1, -1, 25696, 0, NULL, "", 2729088998322943130ULL},
+    {"convert EP1810 PGA POF to JEDEC to POF", 3, 5, 1, 0, -1, 28009, 0, NULL, "", 2807997111398748047ULL},
+    {"convert EP1810 with two racing registers JEDEC to POF to JEDEC", 4, 4, 0, 0, -1, 12164, 0, NULL, "", 18247549446656347192ULL},
+    {"convert EP1810 with two racing registers POF to JEDEC to POF", 4, 5, 1, 0, -1, 31562, 0, NULL, "", 916478877819991066ULL},
+    {"convert EP610 with output enables reading each other JEDEC to POF to JEDEC", 5, 4, 0, 0, -1, 4835, 0, NULL, "", 1664936367748489405ULL},
+    {"convert EP610 with output enables reading each other POF to JEDEC to POF", 5, 5, 1, 0, -1, 5426, 0, NULL, "", 4115103086704863513ULL},
+    {"refuse POF from a file with no device name", 0, 4, 0, 0, -1, -1, 2, NULL, "DEVICE_REQUIRED_FOR_POF", 0ULL},
 };
 
 #endif

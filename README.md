@@ -1,4 +1,4 @@
-# ep1810dump v0.93 -- source
+# ep1810dump v0.94 -- source
 
 Altera Classic EPLD (EP1810 / EP1800I, EP910 / EP900I, EP610 / EP600I) fuse map decompiler by Darksoft.
 Reads one fuse file (.jed or .pof) and writes a design that MAX+PLUS II 10.2 compiles back into the same part,
@@ -13,6 +13,8 @@ ep1810dump emit   <file> [-d DEVICE] [-n NAME] -o DIR
                                                     DIR/NAME.tdf, NAME.acf, NAME.v, REPORT.txt
 ep1810dump dump   <file> [-d DEVICE] [-o FILE]      fuses, logic cell by logic cell
 ep1810dump diff   <file A> <file B> [-o FILE]       fuse differences between two files
+ep1810dump convert <file> -o OUT.{jed|pof} [-d DEVICE]
+                                                    the same fuses as a .jed or a .pof
 ep1810dump devices                                  device names accepted
 ep1810dump selftest [--fail]                        built-in checks
 ep1810dump --version
@@ -27,6 +29,7 @@ ep1810dump decode chip.jed                          report on standard output
 ep1810dump decode chip.jed -d EP1810LC-45           a read-back with no device name in it
 ep1810dump emit chip.pof -n u12 -o out              out/u12.tdf, u12.acf, u12.v, REPORT.txt
 ep1810dump diff old.jed new.jed
+ep1810dump convert chip.jed -o chip.pof -d EP1810LC-45
 ```
 
 - **decode** prints device, package, pin use and the equations of every logic cell.
@@ -35,13 +38,14 @@ ep1810dump diff old.jed new.jed
   DIR must exist; NAME defaults to `design`.
 - **dump** prints the fuses of every logic cell, term by term.
 - **diff** prints the fuses that differ between two files of the same family.
+- **convert** re-encodes a fuse file to the other format; .pof output needs a device.
 - **devices** lists the 158 device names accepted, with family and package.
 
 The device comes from the file: the `ND` note of a JEDEC file, the device packet of a POF. `-d` names it
 when the file does not, or selects the other package of the same family. A JEDEC file read back from a
 programmer usually has no device name: give `-d`.
 
-The banner `ep1810 decoder tool by Darksoft v0.93. Use at your own risk.` goes to standard error on every run.
+The banner `ep1810 decoder tool by Darksoft v0.94. Use at your own risk.` goes to standard error on every run.
 In the output `pN` is package pin N and `lcN` is logic cell N. A register whose clock and data depend on
 the same signal is listed as `RACING`.
 
